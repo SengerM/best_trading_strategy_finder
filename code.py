@@ -104,6 +104,31 @@ def find_reasonable_times_to_buy(price_ask:pandas.Series):
 	good_times_to_sell = good_times_to_sell[good_times_to_sell.shift(-1)>0].index.get_level_values('time')
 	return good_times_to_sell
 
+def compute_all_possible_trading_strategies(trading_data, good_times_to_buy, good_times_to_sell, current_state:dict):
+	if 'money' in current_state: # We want to buy.
+		return current_state | {
+			buy_here: compute_all_possible_trading_strategies(
+				trading_data = trading_data,
+				good_times_to_buy = good_times_to_buy[good_times_to_buy>buy_here],
+				good_times_to_sell = good_times_to_sell[good_times_to_sell>buy_here],
+				current_state = {
+					'asset': current_state['money']//trading_data.loc[buy_here,('price','ask')], # Amount of asset that is purchased, only integer amounts allowed.
+					'savings': current_state['money'] - (current_state['money']//trading_data.loc[buy_here,('price','ask')])*trading_data.loc[buy_here,('price','ask')], # Amount of money left because of having to buy an integer amount of the asset.
+				},
+			) for buy_here in good_times_to_buy}
+	elif 'asset' in current_state: # We want to sell.
+		return current_state | {
+			sell_here: compute_all_possible_trading_strategies(
+				trading_data = trading_data,
+				good_times_to_buy = good_times_to_buy[good_times_to_buy>sell_here],
+				good_times_to_sell = good_times_to_sell[good_times_to_sell>sell_here],
+				current_state = {
+					'money': current_state['asset']*trading_data.loc[sell_here,('price','bid')] + current_state['savings'],
+				},
+			) for sell_here in good_times_to_sell}
+	else:
+		raise RuntimeError('Neither money nor asset in `current_state`')
+
 if __name__ == '__main__':
 	PATH_FOR_PLOTS = Path('./plots').resolve()
 	PATH_FOR_PLOTS.mkdir(exist_ok=True)
@@ -111,14 +136,13 @@ if __name__ == '__main__':
 	data = read_data('raw.chartblock.json')
 	
 	# Testing ---
-	data = data.query('time < 333')
+	data = data.query('time < 154')
 	if len(data)==0:
 		raise RuntimeError('No data!')
 	# -----------
 	
 	good_times_to_sell = find_reasonable_times_to_sell(data[('price','bid')])
 	good_times_to_buy = find_reasonable_times_to_buy(data[('price','ask')])
-	
 	good_times_to_buy = good_times_to_buy.insert(0, data.index.get_level_values('time')[0]) # The first point in time could be a good moment to buy.
 	
 	fig = px.line(
@@ -157,3 +181,12 @@ if __name__ == '__main__':
 		)
 	)
 	fig.write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
+	
+	strategies = compute_all_possible_trading_strategies(
+		trading_data = data,
+		good_times_to_buy = good_times_to_buy,
+		good_times_to_sell = good_times_to_sell,
+		current_state = {'money': 1},
+	)
+	print(json.dumps(strategies, indent=4))
+	asd
