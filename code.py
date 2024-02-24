@@ -4,9 +4,6 @@ import numpy
 import plotly.express as px
 from pathlib import Path
 
-PATH_FOR_PLOTS = Path('./plots').resolve()
-PATH_FOR_PLOTS.mkdir(exist_ok=True)
-
 def read_data(fname:str):
 	"""Reads the data from json format into a pandas data frame."""
 	with open(fname,'r') as ifile:
@@ -106,25 +103,29 @@ def find_reasonable_times_to_buy(price_ask:pandas.Series):
 	good_times_to_sell = good_times_to_sell[good_times_to_sell.shift(-1)>0].index.get_level_values('time')
 	return good_times_to_sell
 
-data = read_data('raw.chartblock.json')
-# ~ data = data.query('time < 22')
-
-good_times_to_sell = find_reasonable_times_to_sell(data[('price','bid')])
-good_times_to_buy = find_reasonable_times_to_buy(data[('price','ask')])
-print(good_times_to_buy)
-
-
-# ~ px.line(
-	# ~ monotonicity_bid.to_frame().reset_index(),
-	# ~ y = 'monotonicity_bid',
-	# ~ x = 'time',
-	# ~ markers = True
-# ~ ).write_html(PATH_FOR_PLOTS/'monotonicity.html', include_plotlyjs=True)
-
-# ~ px.line(
-	# ~ data.stack('name').reset_index().sort_values('time'),
-	# ~ x = 'time',
-	# ~ y = 'price',
-	# ~ color = 'name',
-	# ~ markers = True,
-# ~ ).write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
+if __name__ == '__main__':
+	PATH_FOR_PLOTS = Path('./plots').resolve()
+	PATH_FOR_PLOTS.mkdir(exist_ok=True)
+	
+	data = read_data('raw.chartblock.json')
+	
+	# Testing ---
+	data = data.query('time < 333')
+	if len(data)==0:
+		raise RuntimeError('No data!')
+	# -----------
+	
+	good_times_to_sell = find_reasonable_times_to_sell(data[('price','bid')])
+	good_times_to_buy = find_reasonable_times_to_buy(data[('price','ask')])
+	
+	good_times_to_buy = good_times_to_buy.insert(0, data.index.get_level_values('time')[0]) # The first point in time could be a good moment to buy.
+	
+	print(good_times_to_buy)
+	
+	px.line(
+		data.stack('name').reset_index().sort_values('time'),
+		x = 'time',
+		y = 'price',
+		color = 'name',
+		markers = True,
+	).write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
