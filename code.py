@@ -2,6 +2,7 @@ import json
 import pandas
 import numpy
 import plotly.express as px
+import plotly.graph_objects as go
 from pathlib import Path
 
 def read_data(fname:str):
@@ -120,12 +121,39 @@ if __name__ == '__main__':
 	
 	good_times_to_buy = good_times_to_buy.insert(0, data.index.get_level_values('time')[0]) # The first point in time could be a good moment to buy.
 	
-	print(good_times_to_buy)
-	
-	px.line(
+	fig = px.line(
 		data.stack('name').reset_index().sort_values('time'),
 		x = 'time',
 		y = 'price',
 		color = 'name',
 		markers = True,
-	).write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
+	)
+	fig.add_trace(
+		go.Scatter(
+			x = good_times_to_buy.values,
+			y = data.loc[good_times_to_buy,('price','ask')],
+			name = 'Buy',
+			mode = 'markers',
+			marker = dict(
+				size = 11,
+				line = dict(
+					width = 1,
+				),
+			),
+		)
+	)
+	fig.add_trace(
+		go.Scatter(
+			x = good_times_to_sell.values,
+			y = data.loc[good_times_to_sell,('price','bid')],
+			name = 'Sell',
+			mode = 'markers',
+			marker = dict(
+				size = 11,
+				line = dict(
+					width = 1,
+				),
+			),
+		)
+	)
+	fig.write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
