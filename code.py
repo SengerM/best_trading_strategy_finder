@@ -4,6 +4,7 @@ import numpy
 import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
+import logging
 
 def read_data(fname:str):
 	"""Reads the data from json format into a pandas data frame."""
@@ -105,6 +106,7 @@ def find_reasonable_times_to_buy(price_ask:pandas.Series):
 	return good_times_to_sell
 
 def compute_all_possible_trading_strategies(trading_data, good_times_to_buy, good_times_to_sell, current_state:dict):
+	"""Compute all the possible trading strategies by brute force."""
 	if 'money' in current_state: # We want to buy.
 		return current_state | {
 			buy_here: compute_all_possible_trading_strategies(
@@ -129,28 +131,73 @@ def compute_all_possible_trading_strategies(trading_data, good_times_to_buy, goo
 	else:
 		raise RuntimeError('Neither money nor asset in `current_state`')
 
+def compute_smart_possible_trading_strategies(trading_data, good_times_to_buy, good_times_to_sell, current_state:dict):
+	"""Compute all the possible trading strategies by brute force but 
+	dropping on the fly all which loose money."""
+	if 'money' in current_state: # We want to buy.
+		times_with_ask_price_better_than_what_I_paid = trading_data.loc[good_times_to_buy] # Only in moments for which it would make sense to buy.
+		times_with_ask_price_better_than_what_I_paid = times_with_ask_price_better_than_what_I_paid[times_with_ask_price_better_than_what_I_paid[('price','ask')]<current_state['sold_price']] # Only in moments for which the ask price is lower than what I previously got for the asset.
+		times_with_ask_price_better_than_what_I_paid = times_with_ask_price_better_than_what_I_paid.index # Keep only the index.
+		return current_state | {
+			buy_here: compute_smart_possible_trading_strategies(
+				trading_data = trading_data,
+				good_times_to_buy = good_times_to_buy[good_times_to_buy>buy_here],
+				good_times_to_sell = good_times_to_sell[good_times_to_sell>buy_here],
+				current_state = {
+					'asset': current_state['money']//trading_data.loc[buy_here,('price','ask')], # Amount of asset that is purchased, only integer amounts allowed.
+					'savings': current_state['money'] - (current_state['money']//trading_data.loc[buy_here,('price','ask')])*trading_data.loc[buy_here,('price','ask')], # Amount of money left because of having to buy an integer amount of the asset.
+					'paid_price': trading_data.loc[buy_here,('price','ask')],
+				},
+			) for buy_here in times_with_ask_price_better_than_what_I_paid}
+	elif 'asset' in current_state: # We want to sell.
+		times_with_bid_price_better_than_what_I_got = trading_data.loc[good_times_to_sell] # Only in moments for which it would make sense to buy.
+		times_with_bid_price_better_than_what_I_got = times_with_bid_price_better_than_what_I_got[times_with_bid_price_better_than_what_I_got[('price','bid')]>current_state['paid_price']] # Only in moments for which the bid price is higher than what I previously paid for the asset.
+		times_with_bid_price_better_than_what_I_got = times_with_bid_price_better_than_what_I_got.index # Keep only the index.
+		return current_state | {
+			sell_here: compute_smart_possible_trading_strategies(
+				trading_data = trading_data,
+				good_times_to_buy = good_times_to_buy[good_times_to_buy>sell_here],
+				good_times_to_sell = good_times_to_sell[good_times_to_sell>sell_here],
+				current_state = {
+					'money': current_state['asset']*trading_data.loc[sell_here,('price','bid')] + current_state['savings'],
+					'sold_price': trading_data.loc[sell_here,('price','bid')],
+				},
+			) for sell_here in times_with_bid_price_better_than_what_I_got}
+	else:
+		raise RuntimeError('Neither money nor asset in `current_state`')
+
 if __name__ == '__main__':
+	import sys
+	
+	logging.basicConfig(
+		stream = sys.stderr, 
+		level = logging.INFO,
+		format = '%(asctime)s|%(levelname)s|%(funcName)s|%(message)s',
+		datefmt = '%Y-%m-%d %H:%M:%S',
+	)
+	
 	PATH_FOR_PLOTS = Path('./plots').resolve()
 	PATH_FOR_PLOTS.mkdir(exist_ok=True)
 	
+	logging.info('Reading data...')
 	data = read_data('raw.chartblock.json')
 	
 	# Testing ---
-	data = data.query('time < 154')
-	if len(data)==0:
-		raise RuntimeError('No data!')
+	data = data.head(444)
 	# -----------
 	
+	logging.info('Calculating all good times to sell and buy...')
 	good_times_to_sell = find_reasonable_times_to_sell(data[('price','bid')])
 	good_times_to_buy = find_reasonable_times_to_buy(data[('price','ask')])
 	good_times_to_buy = good_times_to_buy.insert(0, data.index.get_level_values('time')[0]) # The first point in time could be a good moment to buy.
 	
+	logging.info('Doing plots...')
 	fig = px.line(
 		data.stack('name').reset_index().sort_values('time'),
 		x = 'time',
 		y = 'price',
 		color = 'name',
-		markers = True,
+		# ~ markers = True,
 	)
 	fig.add_trace(
 		go.Scatter(
@@ -182,11 +229,14 @@ if __name__ == '__main__':
 	)
 	fig.write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
 	
-	strategies = compute_all_possible_trading_strategies(
+	logging.info('Computing all trading strategies using brute force...')
+	strategies = compute_smart_possible_trading_strategies(
 		trading_data = data,
 		good_times_to_buy = good_times_to_buy,
 		good_times_to_sell = good_times_to_sell,
-		current_state = {'money': 1},
+		current_state = {'money': 1, 'sold_price': float('Inf')}, # Initialize.
 	)
-	print(json.dumps(strategies, indent=4))
-	asd
+	logging.info('Finished computing all trading strategies using brute force.')
+	# ~ print(json.dumps(strategies, indent=4))
+	# ~ optimal_strategy = find_optimal_trading_strategy(strategies)
+	# ~ print(optimal_strategy)
