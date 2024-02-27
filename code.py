@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from pathlib import Path
 import logging
+import pickle
 
 def read_data(fname:str):
 	"""Reads the data from json format into a pandas data frame."""
@@ -176,14 +177,14 @@ if __name__ == '__main__':
 		datefmt = '%Y-%m-%d %H:%M:%S',
 	)
 	
-	PATH_FOR_PLOTS = Path('./plots').resolve()
-	PATH_FOR_PLOTS.mkdir(exist_ok=True)
+	PATH_FOR_OUTPUT_FILES = Path('./output').resolve()
+	PATH_FOR_OUTPUT_FILES.mkdir(exist_ok=True)
 	
 	logging.info('Reading data...')
 	data = read_data('raw.chartblock.json')
 	
 	# Testing ---
-	data = data.head(444)
+	data = data.head(333)
 	# -----------
 	
 	logging.info('Calculating all good times to sell and buy...')
@@ -227,7 +228,7 @@ if __name__ == '__main__':
 			),
 		)
 	)
-	fig.write_html(PATH_FOR_PLOTS/'data.html', include_plotlyjs=True)
+	fig.write_html(PATH_FOR_OUTPUT_FILES/'data.html', include_plotlyjs=True)
 	
 	logging.info('Computing all trading strategies using brute force...')
 	strategies = compute_smart_possible_trading_strategies(
@@ -237,6 +238,11 @@ if __name__ == '__main__':
 		current_state = {'money': 1, 'sold_price': float('Inf')}, # Initialize.
 	)
 	logging.info('Finished computing all trading strategies using brute force.')
+	
+	logging.info('Saving the strategies into a pickle file...')
+	with open(PATH_FOR_OUTPUT_FILES/'strategies.pickle', 'wb') as ofile:
+		pickle.dump(strategies, ofile, protocol=pickle.HIGHEST_PROTOCOL)
+	logging.info('Strategies were saved.')
 	# ~ print(json.dumps(strategies, indent=4))
 	# ~ optimal_strategy = find_optimal_trading_strategy(strategies)
 	# ~ print(optimal_strategy)
